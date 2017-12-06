@@ -1,0 +1,239 @@
+#!/bin/bash
+#
+# A simple dotfile manager, no magic, just yolk.
+# https://github.com/neonnoon/yolk
+
+print_usage() {
+    echo "yolk [options] command"
+    echo
+    echo "Options:"
+    echo "    -d|--dotdir <DIR>"
+    echo "                Path to a bare git repository or .git directory"
+    echo "                containing your dotfiles."
+    echo
+    echo "Commands:"
+    echo
+    echo "    init <REMOTE_URL>"
+    echo "                Set up yolk with a remote git repository"
+    echo
+    echo "    status"
+    echo "                Show the current status of tracked files"
+    echo
+    echo "    list [-a]"
+    echo "                Show tracked files"
+    echo "                Options:"
+    echo "                -a|--all   Show all files that ever existed"
+    echo
+    echo "    diff <FILE>"
+    echo "                Show changes of a file"
+    echo
+    echo "    restore <FILE>"
+    echo "                Restore a file to repos version"
+    echo
+    echo "    recover <FILE>"
+    echo "                Recover the last version of a file that has been removed"
+    echo
+    echo "    remove [-r] <FILE>"
+    echo "                Delete a file, but keep the history"
+    echo "                Options:"
+    echo "                  -r|--recursive   Recursive"
+    echo
+    echo "    forget [-r] <FILE>"
+    echo "                Completely remove a file with history"
+    echo "                WARNING: This cannot be undone, the file will be deleted."
+    echo "                To keep the file, untrack it first."
+    echo "                Options:"
+    echo "                  -r|--recursive   Recursive"
+    echo
+    echo "    untrack [-r] <FILE>"
+    echo "                Stop tracking a file, but keep it"
+    echo "                Options:"
+    echo "                  -r|--recursive   Recursive"
+    echo
+    echo "    track <FILE>"
+    echo "                Start tracking a file"
+    echo
+    echo "    move <FILE>"
+    echo "                Renames a file"
+    echo
+    echo "    pull [-f]"
+    echo "                Pull changes from the remove"
+    echo "                Options:"
+    echo "                  -f|--force   Force changes."
+    echo
+    echo "    push [-f]"
+    echo "                Push your saved changes to the remote"
+    echo "                Options:"
+    echo "                  -f|--force   Force changes, needed when the history was"
+    echo "                               changed, e.g., when using forget."
+    echo
+    echo "    history"
+    echo "                Show the history"
+    echo
+}
+
+BASE_DIR=~
+DOTS_DIR=~/.dotfiles
+
+# Global Options
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            print_usage >&2
+            exit
+        ;;
+        -d|--dotdir|--dotter)
+            DOTS_DIR="$2"
+            shift
+            shift
+        ;;
+        *)
+            if [ -z "$COMMAND" ]; then
+                COMMAND="$1"
+                shift
+            else
+                break
+            fi
+        ;;
+    esac
+done
+
+# Command options
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -r|--recursive)
+            RECURSIVE="-r"
+            shift
+        ;;
+        -f|--force)
+            FORCE="-f"
+            shift
+        ;;
+        -a|--all)
+            ALL="-a"
+            shift
+        ;;
+        -m|--message)
+            MESSAGE=$2
+            shift
+            shift
+        ;;
+        *)
+            break
+        ;;
+    esac
+done
+
+GIT="git --work-tree=$BASE_DIR --git-dir=$DOTS_DIR"
+[ -n "$COMMAND" ] || COMMAND=status
+
+case "$COMMAND" in
+    help)
+        print_usage >&2
+        exit 1
+    ;;
+    init)
+        if [ -e "$DOTS_DIR" ]; then
+            echo "$DOTS_DIR is already set up" >&2
+            exit 1
+        fi
+        
+        REMOTE=$1
+        if [ -z "$REMOTE" ]; then
+            echo "Remote URL missing" >&2
+            exit 1
+        fi
+        
+        git clone --bare $REMOTE $DOTS_DIR
+        
+        if [ ! -f $BASE_DIR/.gitignore ]; then
+            echo "*" > $BASE_DIR/.gitignore
+        fi
+        
+        $GIT reset HEAD
+    ;;
+    status)
+        ColorOff=$'\e[0m'
+        ColorRed=$'\e[31m'
+        $GIT status -s | sed \
+        -e "s/^ M /${ColorRed}CHANGED${ColorOff} /" \
+        -e "s/^ D /${ColorRed}MISSING${ColorOff} /"
+    ;;
+    list|ls)
+        if [ -n "$ALL" ]; then
+            $GIT log --pretty=format: --name-only --diff-filter=A | egrep -v '^$' | sort -u
+        else
+            $GIT ls-tree --full-tree --name-only -r HEAD
+        fi
+    ;;
+    diff)
+        $GIT diff -- $@
+    ;;
+    restore)
+        $GIT checkout -- $@
+    ;;
+    recover)
+        DELETE_COMMIT=`$GIT rev-list -n 1 HEAD -- $@`
+        if [ -n "$DELETE_COMMIT" ]; then
+            $GIT checkout ${DELETE_COMMIT}^1 -- $@
+            [ $? -eq 0 ] || exit $?
+            [ -n "$MESSAGE" ] || MESSAGE="Recovered $@"
+            $GIT commit -m "$MESSAGE"
+        else
+            echo "This file never existed" >&2
+        fi
+    ;;
+    remove)
+        $GIT rm $RECURSIVE -- $@
+        [ $? -eq 0 ] || exit $?
+        [ -n "$MESSAGE" ] || MESSAGE="Removed $*"
+        $GIT commit -m "$MESSAGE"
+    ;;
+    forget)
+        $GIT filter-branch --force --index-filter \
+        "git rm $RECURSIVE --cached --ignore-unmatch $@" \
+        --prune-empty --tag-name-filter cat -- --all
+        [ $? -eq 0 ] || exit $?
+        $GIT for-each-ref --format='delete %(refname)' refs/original | $GIT update-ref --stdin
+        $GIT reflog expire --expire=now --all
+        $GIT gc --prune=now
+    ;;
+    untrack)
+        $GIT rm $RECURSIVE --cached -- $@
+        [ $? -eq 0 ] || exit $?
+        [ -n "$MESSAGE" ] || MESSAGE="Untracked $@"
+        $GIT commit -m "$MESSAGE"
+    ;;
+    track)
+        $GIT add -f -- $@
+        [ $? -eq 0 ] || exit $?
+        [ -n "$MESSAGE" ] || MESSAGE="Tracked $@"
+        $GIT commit -m "$MESSAGE"
+    ;;
+    save)
+        $GIT add -- $@
+        [ $? -eq 0 ] || exit $?
+        [ -n "$MESSAGE" ] || MESSAGE="Saved $@"
+        $GIT commit -m "$MESSAGE"
+    ;;
+    move)
+        $GIT mv $@
+        [ -n "$MESSAGE" ] || MESSAGE="Moved $*"
+        $GIT commit -m "$MESSAGE"
+    ;;
+    pull)
+        $GIT pull $FORCE
+    ;;
+    push)
+        $GIT push $FORCE $@ 2> >(sed 's/git/yolk/g')
+    ;;
+    history)
+        $GIT log $@
+    ;;
+    git)
+        $GIT "$@"
+    ;;
+    *)
+        echo "Unknown command" >&2
+    ;;
+esac
