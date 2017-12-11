@@ -124,7 +124,10 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-GIT="git --work-tree=$BASE_DIR --git-dir=$DOTS_DIR"
+export GIT_DIR=$DOTS_DIR
+export GIT_WORK_TREE=$BASE_DIR
+
+GIT="git"
 [ -n "$COMMAND" ] || COMMAND=status
 
 case "$COMMAND" in
