@@ -7,7 +7,7 @@ A simple dotfile manager, no magic, just `yolk`.
 
 The easiest way to install `yolk` is with [Homebrew](http://brew.sh):
 ```
-brew tap neonnoon/brew https://github.com/neonnoon/formula
+brew tap neonnoon/brew https://github.com/neonnoon/brew
 brew install yolk
 ```
 
