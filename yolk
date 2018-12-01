@@ -70,6 +70,9 @@ print_usage() {
     echo "    history"
     echo "                Show the history"
     echo
+    echo "    unlock <KEYFILE>"
+    echo "                Unlock the repository with the provided key."
+    echo
 }
 
 BASE_DIR=~
@@ -107,6 +110,10 @@ while [ "$#" -gt 0 ]; do
         ;;
         -f|--force)
             FORCE="-f"
+            shift
+        ;;
+        -e|--encrypt*)
+            ENCRYPTED=true
             shift
         ;;
         -a|--all)
@@ -154,6 +161,13 @@ case "$COMMAND" in
         fi
         
         $GIT reset HEAD
+    ;;
+    unlock)
+        if [ ! -f "$1" ]; then
+            echo "Keyfile is missing/invalid" >&2
+            exit 1
+        fi
+        git-crypt unlock $1
     ;;
     status)
         ColorOff=$'\e[0m'
@@ -208,6 +222,9 @@ case "$COMMAND" in
         $GIT commit -m "$MESSAGE"
     ;;
     track)
+        if [ "$ENCRYPTED" = true ]; then
+            echo "TODO"
+        fi
         $GIT add -f -- $@
         [ $? -eq 0 ] || exit $?
         [ -n "$MESSAGE" ] || MESSAGE="Tracked $@"
