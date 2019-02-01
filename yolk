@@ -1,7 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # A simple dotfile manager, no magic, just yolk.
 # https://github.com/neonnoon/yolk
+
+set -euo pipefail
 
 print_usage() {
     echo "yolk [options] command"
@@ -75,21 +77,21 @@ print_usage() {
     echo
 }
 
+# Global Options
 BASE_DIR=~
 DOTS_DIR=~/.dotfiles
-
-# Global Options
+COMMAND=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -h|--help)
             print_usage >&2
             exit
-        ;;
+            ;;
         -d|--dotdir|--dotter)
             DOTS_DIR="$2"
             shift
             shift
-        ;;
+            ;;
         *)
             if [ -z "$COMMAND" ]; then
                 COMMAND="$1"
@@ -97,37 +99,42 @@ while [ "$#" -gt 0 ]; do
             else
                 break
             fi
-        ;;
+            ;;
     esac
 done
 
 # Command options
+RECURSIVE=
+FORCE=
+ALL=
+MESSAGE=
+ENCRYPTED=
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -r|--recursive)
             RECURSIVE="-r"
             shift
-        ;;
+            ;;
         -f|--force)
             FORCE="-f"
             shift
-        ;;
+            ;;
         -e|--encrypt*)
             ENCRYPTED=true
             shift
-        ;;
+            ;;
         -a|--all)
             ALL="-a"
             shift
-        ;;
+            ;;
         -m|--message)
             MESSAGE=$2
             shift
             shift
-        ;;
+            ;;
         *)
             break
-        ;;
+            ;;
     esac
 done
 
@@ -137,58 +144,66 @@ export GIT_WORK_TREE=$BASE_DIR
 GIT="git"
 [ -n "$COMMAND" ] || COMMAND=status
 
+REMOTE=
+KEYFILE=
 case "$COMMAND" in
     help)
         print_usage >&2
         exit 1
-    ;;
+        ;;
     init)
         if [ -e "$DOTS_DIR" ]; then
             echo "$DOTS_DIR is already set up" >&2
             exit 1
         fi
-        
-        REMOTE=$1
+
+        if [ "$#" -gt 0 ]; then
+            REMOTE=$1
+        fi
         if [ -z "$REMOTE" ]; then
             echo "Remote URL missing" >&2
             exit 1
         fi
-        
+
         git clone --bare $REMOTE $DOTS_DIR
-        
+
         if [ ! -f $BASE_DIR/.gitignore ]; then
             echo "*" > $BASE_DIR/.gitignore
         fi
-        
+
         $GIT reset HEAD
-    ;;
+        ;;
     unlock)
+        if [ "$#" -gt 0 ]; then
+            KEYFILE=$1
+        fi
+
         if [ ! -f "$1" ]; then
             echo "Keyfile is missing/invalid" >&2
             exit 1
         fi
-        git-crypt unlock $1
-    ;;
+        $GIT crypt unlock $1
+        ;;
     status)
         ColorOff=$'\e[0m'
         ColorRed=$'\e[31m'
         $GIT status -s | sed \
-        -e "s/^ M /${ColorRed}CHANGED${ColorOff} /" \
-        -e "s/^ D /${ColorRed}MISSING${ColorOff} /"
-    ;;
+            -e "s/^ M /${ColorRed}CHANGED${ColorOff} /" \
+            -e "s/^ D /${ColorRed}MISSING${ColorOff} /"
+        ;;
     list|ls)
         if [ -n "$ALL" ]; then
             $GIT log --pretty=format: --name-only --diff-filter=A | egrep -v '^$' | sort -u
         else
             $GIT ls-tree --full-tree --name-only -r HEAD
         fi
-    ;;
+        ;;
     diff)
         $GIT diff -- $@
-    ;;
+        ;;
     restore)
         $GIT checkout -- $@
-    ;;
+        ;;
     recover)
         DELETE_COMMIT=`$GIT rev-list -n 1 HEAD -- $@`
         if [ -n "$DELETE_COMMIT" ]; then
@@ -199,28 +214,28 @@ case "$COMMAND" in
         else
             echo "This file never existed" >&2
         fi
-    ;;
+        ;;
     remove)
         $GIT rm $RECURSIVE -- $@
         [ $? -eq 0 ] || exit $?
         [ -n "$MESSAGE" ] || MESSAGE="Removed $*"
         $GIT commit -m "$MESSAGE"
-    ;;
+        ;;
     forget)
         $GIT filter-branch --force --index-filter \
-        "git rm $RECURSIVE --cached --ignore-unmatch $@" \
-        --prune-empty --tag-name-filter cat -- --all
+            "git rm $RECURSIVE --cached --ignore-unmatch $@" \
+            --prune-empty --tag-name-filter cat -- --all
         [ $? -eq 0 ] || exit $?
         $GIT for-each-ref --format='delete %(refname)' refs/original | $GIT update-ref --stdin
         $GIT reflog expire --expire=now --all
         $GIT gc --prune=now
-    ;;
+        ;;
     untrack)
         $GIT rm $RECURSIVE --cached -- $@
         [ $? -eq 0 ] || exit $?
         [ -n "$MESSAGE" ] || MESSAGE="Untracked $@"
         $GIT commit -m "$MESSAGE"
-    ;;
+        ;;
     track)
         if [ "$ENCRYPTED" = true ]; then
             echo "TODO"
@@ -229,31 +244,31 @@ case "$COMMAND" in
         [ $? -eq 0 ] || exit $?
         [ -n "$MESSAGE" ] || MESSAGE="Tracked $@"
         $GIT commit -m "$MESSAGE"
-    ;;
+        ;;
     save)
         $GIT add -- $@
         [ $? -eq 0 ] || exit $?
         [ -n "$MESSAGE" ] || MESSAGE="Saved $@"
         $GIT commit -m "$MESSAGE"
-    ;;
+        ;;
     move)
         $GIT mv $@
         [ -n "$MESSAGE" ] || MESSAGE="Moved $*"
         $GIT commit -m "$MESSAGE"
-    ;;
+        ;;
     pull)
         $GIT pull $FORCE
-    ;;
+        ;;
     push)
         $GIT push $FORCE $@ 2> >(sed 's/git/yolk/g')
-    ;;
+        ;;
     history)
         $GIT log $@
-    ;;
+        ;;
     git)
         $GIT "$@"
-    ;;
+        ;;
     *)
         echo "Unknown command" >&2
-    ;;
+        ;;
 esac
