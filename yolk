@@ -55,6 +55,11 @@ print_usage() {
     echo "    track <FILE>"
     echo "                Start tracking a file"
     echo
+    echo "    save [-r] <FILE>"
+    echo "                Save the current version of a file"
+    echo "                Options:"
+    echo "                  -r|--recursive   Recursive"
+    echo
     echo "    move <FILE>"
     echo "                Renames a file"
     echo
