@@ -45,6 +45,9 @@ yolk untrack .a-file
 
 `yolk` doesn't do any magic, it uses a bare git repository in `~/.dotfiles`  (or where ever you like) to store and version your configuration files. It basically treats your whole home directory as a git repository -- but only when you want to (by using `yolk`), and only for what you want to (by using a `.gitignore` file that ignores everything).
 
+### Encrypted Files
+
+Sometimes you might want to track files that contain sensitive information like a password, but clearly you wouldn't want this information to end up in clear text in your git repo. `yolk` can use [git-crypt](https://github.com/AGWA/git-crypt) to encrypt files (optional). Run `yolk crypt` to prepare your repo and `yolk track -e <FILE>` to track files without exposing sensitive information.
 
 ### Advanced Stuff
 

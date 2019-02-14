@@ -170,20 +170,42 @@ case "$COMMAND" in
             exit 1
         fi
 
-        git clone --bare $REMOTE $DOTS_DIR
+        $GIT clone --bare $REMOTE $DOTS_DIR
 
         if [ ! -f $BASE_DIR/.gitignore ]; then
             echo "*" > $BASE_DIR/.gitignore
         fi
 
-        $GIT reset HEAD
+        $GIT rev-parse HEAD &> /dev/null && $GIT reset HEAD
+        ;;
+    crypt)
+        if [ "$#" -gt 0 ]; then
+            KEYFILE=$1
+        fi
+
+        if which git-crypt >/dev/null; then
+            if [ -e $DOTS_DIR/git-crypt/keys/default ]; then
+                echo "Repo is already prepared for encrypting files" >&2
+                exit 1
+            fi
+
+            if [ "$#" -gt 0 ] && [ -f "$1" ]; then
+                $GIT crypt unlock $1
+            else
+                $GIT crypt init
+            fi
+        else
+            echo "Not ready to encrypt files get git-crypt" >&2
+            exit 1
+        fi
+
         ;;
     unlock)
         if [ "$#" -gt 0 ]; then
             KEYFILE=$1
         fi
 
-        if [ ! -f "$1" ]; then
+        if [ ! -f "$KEYFILE" ]; then
             echo "Keyfile is missing/invalid" >&2
             exit 1
         fi
@@ -243,8 +265,19 @@ case "$COMMAND" in
         ;;
     track)
         if [ "$ENCRYPTED" = true ]; then
-            echo "TODO"
+            if [ -e $DOTS_DIR/git-crypt/keys/default ] && which git-crypt >/dev/null; then
+
+                for FILE in `echo $@`; do
+                    echo "$FILE filter=git-crypt diff=git-crypt" >> $BASE_DIR/.gitattributes
+                done
+                $GIT add -f $BASE_DIR/.gitattributes
+
+            else
+                echo "Not ready to encrypt files get git-crypt" >&2
+                exit 1
+            fi
         fi
+
         $GIT add -f -- $@
         [ $? -eq 0 ] || exit $?
         [ -n "$MESSAGE" ] || MESSAGE="Tracked $@"
